@@ -97,6 +97,81 @@ test('POST /api/admin/products creates a product with a valid admin token', asyn
   });
 });
 
+test('user registration, login, and OTP credential recovery work', async () => {
+  process.env.NODE_ENV = 'test';
+
+  await withServer(async (port) => {
+    const registerRes = await fetch(`http://localhost:${port}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'member@example.com',
+        username: 'memberone',
+        password: 'initial-pass-123',
+      }),
+    });
+    const registerBody = await registerRes.json();
+
+    assert.equal(registerRes.status, 201);
+    assert.equal(registerBody.user.email, 'member@example.com');
+    assert.equal(registerBody.user.role, 'user');
+    assert.ok(registerBody.token);
+
+    const loginRes = await fetch(`http://localhost:${port}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'member@example.com', password: 'initial-pass-123' }),
+    });
+    assert.equal(loginRes.status, 200);
+
+    const usernameOtpRes = await fetch(`http://localhost:${port}/api/auth/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'member@example.com', action: 'username' }),
+    });
+    const usernameOtpBody = await usernameOtpRes.json();
+    assert.equal(usernameOtpRes.status, 200);
+
+    const usernameChangeRes = await fetch(`http://localhost:${port}/api/auth/change-username`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'member@example.com',
+        otp: usernameOtpBody.devOtp,
+        newUsername: 'renamedmember',
+      }),
+    });
+    const usernameChangeBody = await usernameChangeRes.json();
+    assert.equal(usernameChangeRes.status, 200);
+    assert.equal(usernameChangeBody.user.username, 'renamedmember');
+
+    const passwordOtpRes = await fetch(`http://localhost:${port}/api/auth/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'member@example.com', action: 'password' }),
+    });
+    const passwordOtpBody = await passwordOtpRes.json();
+
+    const passwordChangeRes = await fetch(`http://localhost:${port}/api/auth/change-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'member@example.com',
+        otp: passwordOtpBody.devOtp,
+        newPassword: 'changed-pass-456',
+      }),
+    });
+    assert.equal(passwordChangeRes.status, 200);
+
+    const changedLoginRes = await fetch(`http://localhost:${port}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'member@example.com', password: 'changed-pass-456' }),
+    });
+    assert.equal(changedLoginRes.status, 200);
+  });
+});
+
 test('PUT /api/admin/products/:id updates a product with a valid admin token', async () => {
   process.env.ADMIN_USERNAME = 'admin';
   process.env.ADMIN_PASSWORD = 'securepass';

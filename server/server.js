@@ -5,6 +5,8 @@ const mongoose = require('mongoose');
 const morgan = require('morgan');
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -14,6 +16,10 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const OTP_TTL_MS = 10 * 60 * 1000;
+
+const inMemoryUsers = [];
+const pendingOtps = new Map();
 
 const inMemoryProducts = [
   {
@@ -54,6 +60,129 @@ const productSchema = new mongoose.Schema(
 );
 
 const Product = mongoose.models.Product || mongoose.model('Product', productSchema);
+
+const userSchema = new mongoose.Schema(
+  {
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    username: { type: String, required: true, unique: true, trim: true },
+    passwordHash: { type: String, required: true },
+  },
+  { timestamps: true }
+);
+
+const User = mongoose.models.User || mongoose.model('User', userSchema);
+
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+const normalizeUsername = (username) => String(username || '').trim();
+
+const normalizeUser = (user) => ({
+  id: user._id ? String(user._id) : user.id,
+  email: user.email,
+  username: user.username,
+  role: 'user',
+});
+
+const findUserByEmail = async (email) => {
+  const normalizedEmail = normalizeEmail(email);
+
+  if (mongoose.connection.readyState === 1) {
+    return User.findOne({ email: normalizedEmail });
+  }
+
+  return inMemoryUsers.find((user) => user.email === normalizedEmail) || null;
+};
+
+const findUserByUsername = async (username) => {
+  const normalizedUsername = normalizeUsername(username).toLowerCase();
+
+  if (mongoose.connection.readyState === 1) {
+    return User.findOne({ username: new RegExp(`^${normalizedUsername}$`, 'i') });
+  }
+
+  return inMemoryUsers.find((user) => user.username.toLowerCase() === normalizedUsername) || null;
+};
+
+const createUser = async ({ email, username, passwordHash }) => {
+  const payload = { email: normalizeEmail(email), username: normalizeUsername(username), passwordHash };
+
+  if (mongoose.connection.readyState === 1) {
+    return User.create(payload);
+  }
+
+  const user = { id: `user-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, ...payload };
+  inMemoryUsers.push(user);
+  return user;
+};
+
+const updateUser = async (user, updates) => {
+  if (mongoose.connection.readyState === 1) {
+    const updated = await User.findByIdAndUpdate(user._id, updates, { new: true, runValidators: true }).lean();
+    return updated;
+  }
+
+  Object.assign(user, updates);
+  return user;
+};
+
+const createMailTransport = () => {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASSWORD,
+    },
+  });
+};
+
+const sendOtpEmail = async (email, otp, action) => {
+  const transport = createMailTransport();
+
+  if (!transport) {
+    return false;
+  }
+
+  await transport.sendMail({
+    from: process.env.MAIL_FROM || process.env.SMTP_USER,
+    to: email,
+    subject: 'Your DevStore verification code',
+    text: `Use ${otp} to ${action === 'username' ? 'change your username' : 'change your password'} on DevStore. This code expires in 10 minutes.`,
+  });
+
+  return true;
+};
+
+const issueOtp = async (email, action) => {
+  const otp = String(crypto.randomInt(100000, 1000000));
+  const key = `${normalizeEmail(email)}:${action}`;
+  pendingOtps.set(key, {
+    codeHash: crypto.createHash('sha256').update(otp).digest('hex'),
+    expiresAt: Date.now() + OTP_TTL_MS,
+  });
+  const delivered = await sendOtpEmail(normalizeEmail(email), otp, action);
+  return { delivered, otp };
+};
+
+const consumeOtp = (email, action, otp) => {
+  const key = `${normalizeEmail(email)}:${action}`;
+  const record = pendingOtps.get(key);
+
+  if (!record || record.expiresAt < Date.now()) {
+    pendingOtps.delete(key);
+    return false;
+  }
+
+  const valid = record.codeHash === crypto.createHash('sha256').update(String(otp || '')).digest('hex');
+  if (valid) {
+    pendingOtps.delete(key);
+  }
+  return valid;
+};
 
 const signToken = (payload) => {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
@@ -219,6 +348,160 @@ app.get('/api/products', async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const username = normalizeUsername(req.body?.username);
+  const password = String(req.body?.password || '');
+
+  if (!email || !username || !password) {
+    return res.status(400).json({ success: false, message: 'Email, username, and password are required' });
+  }
+
+  if (!/^\S+@\S+\.\S+$/.test(email)) {
+    return res.status(400).json({ success: false, message: 'Enter a valid email address' });
+  }
+
+  if (username.length < 3 || username.length > 32) {
+    return res.status(400).json({ success: false, message: 'Username must be 3 to 32 characters' });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
+  }
+
+  if (await findUserByEmail(email)) {
+    return res.status(409).json({ success: false, message: 'Email is already registered' });
+  }
+
+  if (await findUserByUsername(username)) {
+    return res.status(409).json({ success: false, message: 'Username is already taken' });
+  }
+
+  try {
+    const user = await createUser({
+      email,
+      username,
+      passwordHash: await bcrypt.hash(password, 12),
+    });
+    const token = signToken({ userId: String(user._id || user.id), email, username, role: 'user' });
+
+    return res.status(201).json({ success: true, token, user: normalizeUser(user) });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: 'Email or username is already registered' });
+    }
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password || '');
+  const user = await findUserByEmail(email);
+
+  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    return res.status(401).json({ success: false, message: 'Invalid email or password' });
+  }
+
+  const token = signToken({
+    userId: String(user._id || user.id),
+    email: user.email,
+    username: user.username,
+    role: 'user',
+  });
+
+  return res.status(200).json({ success: true, token, user: normalizeUser(user) });
+});
+
+app.post('/api/auth/request-otp', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const action = req.body?.action;
+
+  if (!email || !['username', 'password'].includes(action)) {
+    return res.status(400).json({ success: false, message: 'Email and a valid recovery action are required' });
+  }
+
+  if (!(await findUserByEmail(email))) {
+    return res.status(404).json({ success: false, message: 'No account found for this email' });
+  }
+
+  try {
+    const { delivered, otp } = await issueOtp(email, action);
+
+    if (!delivered && process.env.NODE_ENV === 'production') {
+      return res.status(503).json({ success: false, message: 'Email delivery is not configured. Add SMTP settings on the server.' });
+    }
+
+    const response = {
+      success: true,
+      message: delivered ? 'Verification code sent to your email' : 'Verification code generated for local development',
+    };
+
+    if (!delivered) {
+      response.devOtp = otp;
+    }
+
+    return res.status(200).json(response);
+  } catch (error) {
+    return res.status(502).json({ success: false, message: 'Could not send verification email' });
+  }
+});
+
+app.post('/api/auth/change-username', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const username = normalizeUsername(req.body?.newUsername);
+
+  if (!email || !req.body?.otp || username.length < 3 || username.length > 32) {
+    return res.status(400).json({ success: false, message: 'Email, OTP, and a valid new username are required' });
+  }
+
+  if (!consumeOtp(email, 'username', req.body.otp)) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
+  }
+
+  const user = await findUserByEmail(email);
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'No account found for this email' });
+  }
+
+  const existingUser = await findUserByUsername(username);
+  if (existingUser && String(existingUser._id || existingUser.id) !== String(user._id || user.id)) {
+    return res.status(409).json({ success: false, message: 'Username is already taken' });
+  }
+
+  try {
+    const updatedUser = await updateUser(user, { username });
+    return res.status(200).json({ success: true, user: normalizeUser(updatedUser), message: 'Username updated successfully' });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/auth/change-password', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.newPassword || '');
+
+  if (!email || !req.body?.otp || password.length < 8) {
+    return res.status(400).json({ success: false, message: 'Email, OTP, and a password of at least 8 characters are required' });
+  }
+
+  if (!consumeOtp(email, 'password', req.body.otp)) {
+    return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
+  }
+
+  const user = await findUserByEmail(email);
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'No account found for this email' });
+  }
+
+  try {
+    await updateUser(user, { passwordHash: await bcrypt.hash(password, 12) });
+    return res.status(200).json({ success: true, message: 'Password updated successfully' });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 

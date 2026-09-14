@@ -37,6 +37,22 @@ Copy the example env files and update values as needed.
 - server/.env.example
 - client/.env.example
 
+For production user authentication, configure these server variables for OTP email delivery:
+
+```env
+JWT_SECRET=replace-with-a-long-random-secret
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-smtp-user
+SMTP_PASSWORD=your-smtp-password
+MAIL_FROM=no-reply@example.com
+```
+
+Users register and log in at `/auth` with a unique email, username, and password. They can request an email OTP to change either their username or password. Admin authentication remains separate at `/admin`.
+
+Without SMTP settings, the server only exposes a development OTP when `NODE_ENV` is not `production`; configure SMTP before deploying.
+
 ## Notes
 - The backend exposes a health endpoint at /health
 - The API includes a sample /api/products endpoint

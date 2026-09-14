@@ -33,7 +33,7 @@ function Home() {
   );
 }
 
-function Products() {
+function Products({ currentUser }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -75,7 +75,11 @@ function Products() {
                   ))}
                 </div>
                 <div className="action-row">
-                  <a href={product.url} target="_blank" rel="noreferrer" className="primary-btn small-btn">Open app</a>
+                  {currentUser ? (
+                    <a href={product.url} target="_blank" rel="noreferrer" className="primary-btn small-btn">Open app</a>
+                  ) : (
+                    <Link to="/auth" className="primary-btn small-btn">Login to use</Link>
+                  )}
                   {product.documentationUrl && (
                     <a href={product.documentationUrl} target="_blank" rel="noreferrer" className="secondary-btn small-btn">Docs</a>
                   )}
@@ -85,6 +89,133 @@ function Products() {
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+function UserAuth({ onAuth }) {
+  const [mode, setMode] = useState('login');
+  const [recoveryAction, setRecoveryAction] = useState('password');
+  const [form, setForm] = useState({ email: '', username: '', password: '', otp: '', newValue: '' });
+  const [otpRequested, setOtpRequested] = useState(false);
+  const [status, setStatus] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setForm((previous) => ({ ...previous, [name]: value }));
+  };
+
+  const submitCredentials = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setStatus('');
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/${mode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, username: form.username, password: form.password }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Authentication failed');
+
+      localStorage.setItem('devstore_session', JSON.stringify({ token: data.token, user: data.user }));
+      onAuth(data.user);
+      setStatus(mode === 'login' ? 'Welcome back' : 'Account created successfully');
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const requestOtp = async () => {
+    setLoading(true);
+    setStatus('');
+
+    try {
+      const response = await fetch(`${API_URL}/api/auth/request-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, action: recoveryAction }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Could not send verification code');
+      setOtpRequested(true);
+      setStatus(data.devOtp ? `Development OTP: ${data.devOtp}` : data.message);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const changeCredential = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setStatus('');
+
+    try {
+      const endpoint = recoveryAction === 'username' ? 'change-username' : 'change-password';
+      const body = recoveryAction === 'username'
+        ? { email: form.email, otp: form.otp, newUsername: form.newValue }
+        : { email: form.email, otp: form.otp, newPassword: form.newValue };
+      const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Could not update account');
+      setStatus(data.message);
+      setOtpRequested(false);
+      setForm((previous) => ({ ...previous, otp: '', newValue: '' }));
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-tabs">
+          <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Log in</button>
+          <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Create account</button>
+          <button type="button" className={mode === 'recover' ? 'active' : ''} onClick={() => setMode('recover')}>Recover</button>
+        </div>
+
+        {mode !== 'recover' ? (
+          <form onSubmit={submitCredentials} className="admin-form">
+            <h2>{mode === 'login' ? 'Welcome back' : 'Join DevStore'}</h2>
+            {mode === 'register' && <input name="username" value={form.username} onChange={handleChange} placeholder="Username" required />}
+            <input type="email" name="email" value={form.email} onChange={handleChange} placeholder="Email address" required />
+            <input type="password" name="password" value={form.password} onChange={handleChange} placeholder="Password (8+ characters)" required />
+            <button type="submit" className="primary-btn" disabled={loading}>{loading ? 'Please wait...' : mode === 'login' ? 'Log in' : 'Create account'}</button>
+          </form>
+        ) : (
+          <div className="admin-form">
+            <h2>Recover your account</h2>
+            <div className="auth-tabs recovery-tabs">
+              <button type="button" className={recoveryAction === 'password' ? 'active' : ''} onClick={() => { setRecoveryAction('password'); setOtpRequested(false); }}>Password</button>
+              <button type="button" className={recoveryAction === 'username' ? 'active' : ''} onClick={() => { setRecoveryAction('username'); setOtpRequested(false); }}>Username</button>
+            </div>
+            <input type="email" name="email" value={form.email} onChange={handleChange} placeholder="Account email" required />
+            {!otpRequested ? (
+              <button type="button" className="primary-btn" onClick={requestOtp} disabled={loading}>{loading ? 'Sending...' : 'Send email OTP'}</button>
+            ) : (
+              <form onSubmit={changeCredential} className="admin-form">
+                <input name="otp" value={form.otp} onChange={handleChange} placeholder="6-digit email OTP" inputMode="numeric" required />
+                <input type={recoveryAction === 'password' ? 'password' : 'text'} name="newValue" value={form.newValue} onChange={handleChange} placeholder={recoveryAction === 'password' ? 'New password (8+ characters)' : 'New username'} required />
+                <button type="submit" className="primary-btn" disabled={loading}>{loading ? 'Updating...' : `Update ${recoveryAction}`}</button>
+              </form>
+            )}
+          </div>
+        )}
+        {status && <div className="status-box">{status}</div>}
+      </div>
     </section>
   );
 }
@@ -330,6 +461,19 @@ function About() {
 }
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('devstore_session'))?.user || null;
+    } catch {
+      return null;
+    }
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem('devstore_session');
+    setCurrentUser(null);
+  };
+
   return (
     <BrowserRouter>
       <header className="topbar">
@@ -337,6 +481,14 @@ export default function App() {
         <nav>
           <Link to="/">Home</Link>
           <Link to="/products">Products</Link>
+          {currentUser ? (
+            <>
+              <Link to="/account">{currentUser.username}</Link>
+              <button type="button" className="nav-button" onClick={handleLogout}>Log out</button>
+            </>
+          ) : (
+            <Link to="/auth">User login</Link>
+          )}
           <Link to="/admin">Admin</Link>
           <Link to="/about">About</Link>
         </nav>
@@ -345,7 +497,9 @@ export default function App() {
       <main className="container">
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/products" element={<Products />} />
+          <Route path="/products" element={<Products currentUser={currentUser} />} />
+          <Route path="/auth" element={<UserAuth onAuth={setCurrentUser} />} />
+          <Route path="/account" element={<UserAuth onAuth={setCurrentUser} />} />
           <Route path="/admin" element={<AdminUpload />} />
           <Route path="/about" element={<About />} />
         </Routes>
