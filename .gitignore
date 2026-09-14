@@ -9,9 +9,10 @@ node_modules/
 !.env.example
 
 # build outputs
-client/dist/
 dist/
 build/
+!client/dist/
+!client/dist/**
 
 # uploads
 server/uploads/
