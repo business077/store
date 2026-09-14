@@ -86,6 +86,18 @@ h1 {
   font-size: 1.1rem;
 }
 
+.status-box {
+  margin: 1.5rem auto 0;
+  width: fit-content;
+  max-width: 90%;
+  background: rgba(87, 135, 255, 0.12);
+  border: 1px solid rgba(126, 172, 255, 0.3);
+  border-radius: 999px;
+  padding: 0.7rem 1rem;
+  font-size: 0.92rem;
+  color: #dfeeff;
+}
+
 .cta-row {
   margin-top: 2rem;
   display: flex;
