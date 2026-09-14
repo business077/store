@@ -3,13 +3,6 @@ import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-const products = [
-  { title: 'UI Kit', description: 'Modern design system for startups and SaaS products.', price: '$29' },
-  { title: 'Dashboard Pack', description: 'High-converting analytics views for product teams.', price: '$49' },
-  { title: 'Brand Assets', description: 'Ready-to-use templates and marketing graphics.', price: '$19' },
-  { title: 'Launch Toolkit', description: 'Growth assets for product launches and marketing sprints.', price: '$39' },
-];
-
 function Home() {
   const [backendStatus, setBackendStatus] = useState('Checking backend...');
 
@@ -28,28 +21,199 @@ function Home() {
       <div className="badge">Active marketplace</div>
       <h1>DevStore</h1>
       <p>
-        Discover premium digital products, creator tools, and downloadable assets built for modern teams.
+        Discover premium web apps, developer tools, and digital products built for modern teams.
       </p>
       <div className="status-box">{backendStatus}</div>
       <div className="cta-row">
         <Link to="/products" className="primary-btn">Browse products</Link>
-        <Link to="/about" className="secondary-btn">About</Link>
+        <Link to="/admin" className="secondary-btn">Admin upload</Link>
       </div>
     </section>
   );
 }
 
 function Products() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/products`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Failed to fetch products');
+        setProducts(data.products || []);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
-    <section className="grid">
-      {products.map((product) => (
-        <div className="card" key={product.title}>
-          <span className="chip">Product</span>
-          <h3>{product.title}</h3>
-          <p>{product.description}</p>
-          <strong>{product.price}</strong>
+    <section>
+      <div className="section-header">
+        <h2>Featured web apps</h2>
+      </div>
+
+      {loading && <div className="status-box">Loading products...</div>}
+      {error && <div className="error-box">{error}</div>}
+
+      {!loading && !error && (
+        <div className="grid">
+          {products.map((product) => (
+            <article className="card" key={product.id || product.name}>
+              <span className="chip">{product.category || 'Product'}</span>
+              <h3>{product.name}</h3>
+              <p>{product.description}</p>
+              <div className="meta-row">
+                {product.tags?.slice(0, 3).map((tag) => (
+                  <span key={tag} className="tag">{tag}</span>
+                ))}
+              </div>
+              <div className="action-row">
+                <a href={product.url} target="_blank" rel="noreferrer" className="primary-btn small-btn">Open app</a>
+                {product.documentationUrl && (
+                  <a href={product.documentationUrl} target="_blank" rel="noreferrer" className="secondary-btn small-btn">Docs</a>
+                )}
+              </div>
+            </article>
+          ))}
         </div>
-      ))}
+      )}
+    </section>
+  );
+}
+
+function AdminUpload() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [token, setToken] = useState('');
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    url: '',
+    documentationUrl: '',
+    category: 'Productivity',
+    tags: 'dashboard,webapp',
+  });
+  const [status, setStatus] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleLoginChange = (event) => {
+    const { name, value } = event.target;
+    setLoginForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleLogin = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setStatus('');
+
+    try {
+      const response = await fetch(`${API_URL}/api/admin/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(loginForm),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      setToken(data.token);
+      setIsLoggedIn(true);
+      setStatus('Admin login successful');
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!isLoggedIn || !token) {
+      setStatus('Please log in first');
+      return;
+    }
+
+    setLoading(true);
+    setStatus('');
+
+    try {
+      const response = await fetch(`${API_URL}/api/admin/products`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...form,
+          tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Upload failed');
+      }
+
+      setStatus('Product created successfully');
+      setForm({
+        name: '',
+        description: '',
+        url: '',
+        documentationUrl: '',
+        category: 'Productivity',
+        tags: 'dashboard,webapp',
+      });
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="admin-panel">
+      <h2>Admin area</h2>
+      {!isLoggedIn ? (
+        <form onSubmit={handleLogin} className="admin-form">
+          <input name="username" value={loginForm.username} onChange={handleLoginChange} placeholder="Username" required />
+          <input type="password" name="password" value={loginForm.password} onChange={handleLoginChange} placeholder="Password" required />
+          <button type="submit" className="primary-btn" disabled={loading}>
+            {loading ? 'Logging in...' : 'Login'}
+          </button>
+        </form>
+      ) : (
+        <>
+          <p>Upload a web app product with a live URL, docs, name, and category.</p>
+
+          <form onSubmit={handleSubmit} className="admin-form">
+            <input name="name" value={form.name} onChange={handleChange} placeholder="Product name" required />
+            <textarea name="description" value={form.description} onChange={handleChange} placeholder="Short description" rows="4" required />
+            <input name="url" value={form.url} onChange={handleChange} placeholder="Live app URL" required />
+            <input name="documentationUrl" value={form.documentationUrl} onChange={handleChange} placeholder="Documentation URL" />
+            <input name="category" value={form.category} onChange={handleChange} placeholder="Category" />
+            <input name="tags" value={form.tags} onChange={handleChange} placeholder="Tags comma separated" />
+            <button type="submit" className="primary-btn" disabled={loading}>
+              {loading ? 'Uploading...' : 'Upload product'}
+            </button>
+          </form>
+        </>
+      )}
+
+      {status && <div className="status-box">{status}</div>}
     </section>
   );
 }
@@ -59,7 +223,7 @@ function About() {
     <section className="about-box">
       <h2>About DevStore</h2>
       <p>
-        DevStore is a digital storefront designed for creators, developers, and product teams who want fast access to premium creative assets.
+        DevStore is a digital marketplace for web apps, creator tools, and premium digital products that teams can browse and launch directly from the browser.
       </p>
     </section>
   );
@@ -73,6 +237,7 @@ export default function App() {
         <nav>
           <Link to="/">Home</Link>
           <Link to="/products">Products</Link>
+          <Link to="/admin">Admin</Link>
           <Link to="/about">About</Link>
         </nav>
       </header>
@@ -81,6 +246,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/products" element={<Products />} />
+          <Route path="/admin" element={<AdminUpload />} />
           <Route path="/about" element={<About />} />
         </Routes>
       </main>
