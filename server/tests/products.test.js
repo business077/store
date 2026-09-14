@@ -83,6 +83,7 @@ test('POST /api/admin/products creates a product with a valid admin token', asyn
         description: 'Team workflow dashboard for product teams.',
         url: 'https://example.com/project-manager',
         documentationUrl: 'https://example.com/docs/project-manager',
+        imageUrl: 'https://example.com/images/project-manager.jpg',
         category: 'Productivity',
         tags: ['dashboard', 'team'],
       }),

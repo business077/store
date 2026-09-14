@@ -114,6 +114,7 @@ const normalizeProduct = (product) => ({
   category: product.category || 'General',
   tags: Array.isArray(product.tags) ? product.tags : [],
   coverImage: product.coverImage || '',
+  imageUrl: product.coverImage || product.imageUrl || '',
   createdAt: product.createdAt || new Date().toISOString(),
 });
 
@@ -223,7 +224,7 @@ app.post('/api/admin/products', async (req, res) => {
     });
   }
 
-  const { name, description, url, documentationUrl, category, tags, coverImage } = req.body || {};
+  const { name, description, url, documentationUrl, category, tags, coverImage, imageUrl } = req.body || {};
 
   if (!name || !description || !url) {
     return res.status(400).json({
@@ -240,7 +241,7 @@ app.post('/api/admin/products', async (req, res) => {
       documentationUrl,
       category,
       tags,
-      coverImage,
+      coverImage: coverImage || imageUrl || '',
     });
 
     return res.status(201).json({

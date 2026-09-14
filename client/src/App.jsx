@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1553877522-43269d4ea984?auto=format&fit=crop&w=1200&q=80';
 
 function Home() {
   const [backendStatus, setBackendStatus] = useState('Checking backend...');
@@ -60,20 +61,25 @@ function Products() {
       {!loading && !error && (
         <div className="grid">
           {products.map((product) => (
-            <article className="card" key={product.id || product.name}>
-              <span className="chip">{product.category || 'Product'}</span>
-              <h3>{product.name}</h3>
-              <p>{product.description}</p>
-              <div className="meta-row">
-                {product.tags?.slice(0, 3).map((tag) => (
-                  <span key={tag} className="tag">{tag}</span>
-                ))}
+            <article className="product-card" key={product.id || product.name}>
+              <div className="product-image-wrap">
+                <img src={product.imageUrl || product.coverImage || FALLBACK_IMAGE} alt={product.name} className="product-image" />
               </div>
-              <div className="action-row">
-                <a href={product.url} target="_blank" rel="noreferrer" className="primary-btn small-btn">Open app</a>
-                {product.documentationUrl && (
-                  <a href={product.documentationUrl} target="_blank" rel="noreferrer" className="secondary-btn small-btn">Docs</a>
-                )}
+              <div className="product-body">
+                <span className="chip">{product.category || 'Product'}</span>
+                <h3>{product.name}</h3>
+                <p>{product.description}</p>
+                <div className="meta-row">
+                  {product.tags?.slice(0, 3).map((tag) => (
+                    <span key={tag} className="tag">{tag}</span>
+                  ))}
+                </div>
+                <div className="action-row">
+                  <a href={product.url} target="_blank" rel="noreferrer" className="primary-btn small-btn">Open app</a>
+                  {product.documentationUrl && (
+                    <a href={product.documentationUrl} target="_blank" rel="noreferrer" className="secondary-btn small-btn">Docs</a>
+                  )}
+                </div>
               </div>
             </article>
           ))}
@@ -86,17 +92,37 @@ function Products() {
 function AdminUpload() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [token, setToken] = useState('');
+  const [products, setProducts] = useState([]);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [form, setForm] = useState({
     name: '',
     description: '',
     url: '',
     documentationUrl: '',
+    imageUrl: '',
     category: 'Productivity',
     tags: 'dashboard,webapp',
   });
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const fetchProducts = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/products`);
+      const data = await response.json();
+      if (response.ok) {
+        setProducts(data.products || []);
+      }
+    } catch {
+      // no-op for dashboard summary
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchProducts();
+    }
+  }, [isLoggedIn]);
 
   const handleLoginChange = (event) => {
     const { name, value } = event.target;
@@ -158,6 +184,7 @@ function AdminUpload() {
         },
         body: JSON.stringify({
           ...form,
+          imageUrl: form.imageUrl || FALLBACK_IMAGE,
           tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
         }),
       });
@@ -174,9 +201,11 @@ function AdminUpload() {
         description: '',
         url: '',
         documentationUrl: '',
+        imageUrl: '',
         category: 'Productivity',
         tags: 'dashboard,webapp',
       });
+      await fetchProducts();
     } catch (error) {
       setStatus(error.message);
     } finally {
@@ -185,32 +214,70 @@ function AdminUpload() {
   };
 
   return (
-    <section className="admin-panel">
-      <h2>Admin area</h2>
+    <section className="admin-shell">
       {!isLoggedIn ? (
-        <form onSubmit={handleLogin} className="admin-form">
-          <input name="username" value={loginForm.username} onChange={handleLoginChange} placeholder="Username" required />
-          <input type="password" name="password" value={loginForm.password} onChange={handleLoginChange} placeholder="Password" required />
-          <button type="submit" className="primary-btn" disabled={loading}>
-            {loading ? 'Logging in...' : 'Login'}
-          </button>
-        </form>
-      ) : (
-        <>
-          <p>Upload a web app product with a live URL, docs, name, and category.</p>
-
-          <form onSubmit={handleSubmit} className="admin-form">
-            <input name="name" value={form.name} onChange={handleChange} placeholder="Product name" required />
-            <textarea name="description" value={form.description} onChange={handleChange} placeholder="Short description" rows="4" required />
-            <input name="url" value={form.url} onChange={handleChange} placeholder="Live app URL" required />
-            <input name="documentationUrl" value={form.documentationUrl} onChange={handleChange} placeholder="Documentation URL" />
-            <input name="category" value={form.category} onChange={handleChange} placeholder="Category" />
-            <input name="tags" value={form.tags} onChange={handleChange} placeholder="Tags comma separated" />
+        <div className="login-card">
+          <h2>Admin login</h2>
+          <form onSubmit={handleLogin} className="admin-form">
+            <input name="username" value={loginForm.username} onChange={handleLoginChange} placeholder="Username" required />
+            <input type="password" name="password" value={loginForm.password} onChange={handleLoginChange} placeholder="Password" required />
             <button type="submit" className="primary-btn" disabled={loading}>
-              {loading ? 'Uploading...' : 'Upload product'}
+              {loading ? 'Logging in...' : 'Login'}
             </button>
           </form>
-        </>
+        </div>
+      ) : (
+        <div className="dashboard-grid">
+          <div className="dashboard-panel form-panel">
+            <div className="panel-header">
+              <h3>New product</h3>
+            </div>
+            <form onSubmit={handleSubmit} className="admin-form">
+              <input name="name" value={form.name} onChange={handleChange} placeholder="Product name" required />
+              <textarea name="description" value={form.description} onChange={handleChange} placeholder="Short description" rows="4" required />
+              <input name="url" value={form.url} onChange={handleChange} placeholder="Live app URL" required />
+              <input name="documentationUrl" value={form.documentationUrl} onChange={handleChange} placeholder="Documentation URL" />
+              <input name="imageUrl" value={form.imageUrl} onChange={handleChange} placeholder="Image URL" />
+              <input name="category" value={form.category} onChange={handleChange} placeholder="Category" />
+              <input name="tags" value={form.tags} onChange={handleChange} placeholder="Tags comma separated" />
+              <button type="submit" className="primary-btn" disabled={loading}>
+                {loading ? 'Uploading...' : 'Publish product'}
+              </button>
+            </form>
+          </div>
+
+          <div className="dashboard-panel summary-panel">
+            <div className="panel-header">
+              <h3>Dashboard</h3>
+            </div>
+            <div className="stat-grid">
+              <div className="stat-card">
+                <span>Total</span>
+                <strong>{products.length}</strong>
+              </div>
+              <div className="stat-card">
+                <span>Categories</span>
+                <strong>{new Set(products.map((item) => item.category || 'General')).size}</strong>
+              </div>
+              <div className="stat-card">
+                <span>Status</span>
+                <strong>Live</strong>
+              </div>
+            </div>
+
+            <div className="mini-list">
+              {products.slice(0, 4).map((product) => (
+                <div key={product.id || product.name} className="mini-item">
+                  <img src={product.imageUrl || product.coverImage || FALLBACK_IMAGE} alt={product.name} />
+                  <div>
+                    <strong>{product.name}</strong>
+                    <span>{product.category || 'General'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {status && <div className="status-box">{status}</div>}
