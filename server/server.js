@@ -17,6 +17,9 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 const OTP_TTL_MS = 10 * 60 * 1000;
+const DATABASE_RETRY_LIMIT = 5;
+const DATABASE_RETRY_DELAY_MS = 5000;
+let databaseStatus = process.env.MONGO_URI ? 'connecting' : 'fallback';
 
 const inMemoryUsers = [];
 const pendingOtps = new Map();
@@ -324,6 +327,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Devstore server is running',
+    database: databaseStatus,
     timestamp: new Date().toISOString(),
     port: PORT,
   });
@@ -637,27 +641,38 @@ app.use((req, res) => {
   });
 });
 
-const startServer = async () => {
-  try {
-    if (process.env.MONGO_URI) {
+const connectDatabaseWithRetry = async () => {
+  if (!process.env.MONGO_URI) {
+    console.log('MONGO_URI not found. Running with in-memory fallback storage.');
+    return;
+  }
+
+  for (let attempt = 1; attempt <= DATABASE_RETRY_LIMIT; attempt += 1) {
+    try {
       await mongoose.connect(process.env.MONGO_URI, {
         serverSelectionTimeoutMS: 5000,
       });
-      console.log('MongoDB connected successfully');
-    } else {
-      console.log('MONGO_URI not found. Starting without database connection.');
-    }
+      databaseStatus = 'connected';
+      console.log(`MongoDB connected successfully on attempt ${attempt}`);
+      return;
+    } catch (error) {
+      databaseStatus = attempt === DATABASE_RETRY_LIMIT ? 'fallback' : 'connecting';
+      console.error(`MongoDB connection attempt ${attempt} failed: ${error.message}`);
 
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error.message);
-    console.log('Server still booted for local testing.');
-    app.listen(PORT, () => {
-      console.log(`Fallback server running on http://localhost:${PORT}`);
-    });
+      if (attempt < DATABASE_RETRY_LIMIT) {
+        await new Promise((resolve) => setTimeout(resolve, DATABASE_RETRY_DELAY_MS));
+      }
+    }
   }
+
+  console.log('MongoDB unavailable. Continuing with in-memory fallback storage.');
+};
+
+const startServer = () => {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    connectDatabaseWithRetry();
+  });
 };
 
 if (require.main === module) {
