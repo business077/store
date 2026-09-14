@@ -12,10 +12,6 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
-const CLIENT_URLS = [CLIENT_URL, ...(process.env.CLIENT_URLS || '').split(',')]
-  .map((url) => url.trim())
-  .filter(Boolean);
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
@@ -225,35 +221,11 @@ const verifyToken = (authHeader) => {
   }
 };
 
-const isAllowedOrigin = (origin) => {
-  if (!origin) {
-    return true;
-  }
-
-  if (CLIENT_URLS.includes(origin)) {
-    return true;
-  }
-
-  try {
-    const parsedOrigin = new URL(origin);
-    const isLocalDevelopment = ['localhost', '127.0.0.1'].includes(parsedOrigin.hostname)
-      || /^192\.168\./.test(parsedOrigin.hostname)
-      || /^10\./.test(parsedOrigin.hostname);
-    const isVercelDeployment = parsedOrigin.hostname.endsWith('.vercel.app');
-    return isLocalDevelopment || isVercelDeployment;
-  } catch {
-    return false;
-  }
-};
-
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (isAllowedOrigin(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error('Origin is not allowed by CORS'));
-  },
-  credentials: true,
+  // Authentication uses bearer tokens, so each device can log in independently.
+  // No cookies are used, which makes an open API origin safe for this client.
+  origin: true,
+  credentials: false,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
 };

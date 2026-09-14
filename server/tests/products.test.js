@@ -30,6 +30,19 @@ test('GET /api/products returns a product list', async () => {
   });
 });
 
+test('health endpoint supports independent browser origins', async () => {
+  await withServer(async (port) => {
+    for (const origin of ['https://store-three-flax.vercel.app', 'https://phone.example.com']) {
+      const res = await fetch(`http://localhost:${port}/health`, {
+        headers: { Origin: origin },
+      });
+
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get('access-control-allow-origin'), origin);
+    }
+  });
+});
+
 test('POST /api/admin/login returns a token for valid credentials', async () => {
   process.env.ADMIN_USERNAME = 'admin';
   process.env.ADMIN_PASSWORD = 'securepass';
