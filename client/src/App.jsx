@@ -5,18 +5,102 @@ const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000')
   .replace(/\/+$/, '')
   .replace(/\/api$/, '');
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1553877522-43269d4ea984?auto=format&fit=crop&w=1200&q=80';
+const HEALTH_RETRY_LIMIT = 12;
+const HEALTH_RETRY_DELAY_MS = 2500;
+const REQUEST_TIMEOUT_MS = 15000;
+
+const wait = (duration) => new Promise((resolve) => setTimeout(resolve, duration));
+
+const fetchWithTimeout = async (url, options = {}) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const checkBackend = async () => {
+  const response = await fetchWithTimeout(`${API_URL}/health`);
+  if (!response.ok) {
+    throw new Error(`Backend returned ${response.status}`);
+  }
+  return response.json();
+};
+
+async function waitForBackend(onAttempt) {
+  for (let attempt = 1; attempt <= HEALTH_RETRY_LIMIT; attempt += 1) {
+    onAttempt(attempt);
+    try {
+      await checkBackend();
+      return true;
+    } catch {
+      if (attempt < HEALTH_RETRY_LIMIT) {
+        await wait(HEALTH_RETRY_DELAY_MS);
+      }
+    }
+  }
+  return false;
+}
+
+function BackendGate({ children }) {
+  const [state, setState] = useState({ status: 'checking', attempt: 0 });
+
+  const connect = async () => {
+    setState({ status: 'checking', attempt: 0 });
+    const connected = await waitForBackend((attempt) => {
+      setState({ status: 'checking', attempt });
+    });
+    setState({ status: connected ? 'connected' : 'offline', attempt: connected ? 0 : HEALTH_RETRY_LIMIT });
+  };
+
+  useEffect(() => {
+    connect();
+  }, []);
+
+  if (state.status === 'checking') {
+    return (
+      <main className="connection-screen">
+        <div className="connection-card">
+          <div className="connection-spinner" aria-hidden="true" />
+          <span className="badge">Connecting to DevStore</span>
+          <h1>Starting the marketplace</h1>
+          <p>The server may be waking up. We will keep trying before loading the app.</p>
+          <div className="status-box">Connection attempt {state.attempt} of {HEALTH_RETRY_LIMIT}</div>
+        </div>
+      </main>
+    );
+  }
+
+  if (state.status === 'offline') {
+    return (
+      <main className="connection-screen">
+        <div className="connection-card">
+          <span className="badge">Server unavailable</span>
+          <h1>Still waiting for the backend</h1>
+          <p>DevStore could not connect after several attempts. Try again when the server has finished deploying or waking up.</p>
+          <button type="button" className="primary-btn" onClick={connect}>Try again</button>
+        </div>
+      </main>
+    );
+  }
+
+  return children;
+}
 
 function Home() {
   const [backendStatus, setBackendStatus] = useState('Checking backend...');
 
   useEffect(() => {
-    fetch(`${API_URL}/health`)
+    fetchWithTimeout(`${API_URL}/health`)
       .then(async (res) => {
         if (!res.ok) throw new Error('Backend not reachable');
         const data = await res.json();
         setBackendStatus(data.message || 'Backend connected');
       })
-      .catch(() => setBackendStatus('Backend offline or not running yet'));
+      .catch(() => setBackendStatus('Backend connection lost'));
   }, []);
 
   return (
@@ -41,7 +125,7 @@ function Products({ currentUser }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/api/products`)
+    fetchWithTimeout(`${API_URL}/api/products`)
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || 'Failed to fetch products');
@@ -114,7 +198,7 @@ function UserAuth({ onAuth }) {
     setStatus('');
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/${mode}`, {
+      const response = await fetchWithTimeout(`${API_URL}/api/auth/${mode}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: form.email, username: form.username, password: form.password }),
@@ -137,7 +221,7 @@ function UserAuth({ onAuth }) {
     setStatus('');
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/request-otp`, {
+      const response = await fetchWithTimeout(`${API_URL}/api/auth/request-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: form.email, action: recoveryAction }),
@@ -163,7 +247,7 @@ function UserAuth({ onAuth }) {
       const body = recoveryAction === 'username'
         ? { email: form.email, otp: form.otp, newUsername: form.newValue }
         : { email: form.email, otp: form.otp, newPassword: form.newValue };
-      const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
+      const response = await fetchWithTimeout(`${API_URL}/api/auth/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -242,7 +326,7 @@ function AdminUpload() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/products`);
+      const response = await fetchWithTimeout(`${API_URL}/api/products`);
       const data = await response.json();
       if (response.ok) {
         setProducts(data.products || []);
@@ -301,7 +385,7 @@ function AdminUpload() {
     setStatus('');
 
     try {
-      const response = await fetch(`${API_URL}/api/admin/login`, {
+      const response = await fetchWithTimeout(`${API_URL}/api/admin/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -340,7 +424,7 @@ function AdminUpload() {
       const endpoint = editingProductId
         ? `${API_URL}/api/admin/products/${editingProductId}`
         : `${API_URL}/api/admin/products`;
-      const response = await fetch(endpoint, {
+      const response = await fetchWithTimeout(endpoint, {
         method: editingProductId ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -496,16 +580,18 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="container">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/products" element={<Products currentUser={currentUser} />} />
-          <Route path="/auth" element={<UserAuth onAuth={setCurrentUser} />} />
-          <Route path="/account" element={<UserAuth onAuth={setCurrentUser} />} />
-          <Route path="/admin" element={<AdminUpload />} />
-          <Route path="/about" element={<About />} />
-        </Routes>
-      </main>
+      <BackendGate>
+        <main className="container">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/products" element={<Products currentUser={currentUser} />} />
+            <Route path="/auth" element={<UserAuth onAuth={setCurrentUser} />} />
+            <Route path="/account" element={<UserAuth onAuth={setCurrentUser} />} />
+            <Route path="/admin" element={<AdminUpload />} />
+            <Route path="/about" element={<About />} />
+          </Routes>
+        </main>
+      </BackendGate>
     </BrowserRouter>
   );
 }

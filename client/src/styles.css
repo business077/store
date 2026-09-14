@@ -89,6 +89,50 @@ nav a {
   padding: 4rem 1.5rem 3rem;
 }
 
+.connection-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.connection-card {
+  width: min(100%, 620px);
+  padding: 2.5rem;
+  text-align: center;
+  background: rgba(16, 23, 34, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 20px 44px rgba(3, 8, 15, 0.38);
+}
+
+.connection-card h1 {
+  margin-top: 1rem;
+  font-size: clamp(2.2rem, 6vw, 4.5rem);
+  letter-spacing: -0.04em;
+}
+
+.connection-card p {
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.connection-spinner {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto 1.4rem;
+  border: 3px solid rgba(120, 166, 255, 0.2);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .hero {
   min-height: 72vh;
   display: flex;
