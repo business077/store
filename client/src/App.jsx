@@ -93,6 +93,7 @@ function AdminUpload() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [token, setToken] = useState('');
   const [products, setProducts] = useState([]);
+  const [editingProductId, setEditingProductId] = useState('');
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [form, setForm] = useState({
     name: '',
@@ -132,6 +133,33 @@ function AdminUpload() {
   const handleChange = (event) => {
     const { name, value } = event.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const resetForm = () => {
+    setEditingProductId('');
+    setForm({
+      name: '',
+      description: '',
+      url: '',
+      documentationUrl: '',
+      imageUrl: '',
+      category: 'Productivity',
+      tags: 'dashboard,webapp',
+    });
+  };
+
+  const handleEdit = (product) => {
+    setEditingProductId(product.id);
+    setForm({
+      name: product.name || '',
+      description: product.description || '',
+      url: product.url || '',
+      documentationUrl: product.documentationUrl || '',
+      imageUrl: product.imageUrl || product.coverImage || '',
+      category: product.category || 'General',
+      tags: Array.isArray(product.tags) ? product.tags.join(',') : '',
+    });
+    setStatus(`Editing ${product.name}`);
   };
 
   const handleLogin = async (event) => {
@@ -176,8 +204,11 @@ function AdminUpload() {
     setStatus('');
 
     try {
-      const response = await fetch(`${API_URL}/api/admin/products`, {
-        method: 'POST',
+      const endpoint = editingProductId
+        ? `${API_URL}/api/admin/products/${editingProductId}`
+        : `${API_URL}/api/admin/products`;
+      const response = await fetch(endpoint, {
+        method: editingProductId ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
@@ -195,16 +226,8 @@ function AdminUpload() {
         throw new Error(data.message || 'Upload failed');
       }
 
-      setStatus('Product created successfully');
-      setForm({
-        name: '',
-        description: '',
-        url: '',
-        documentationUrl: '',
-        imageUrl: '',
-        category: 'Productivity',
-        tags: 'dashboard,webapp',
-      });
+      setStatus(editingProductId ? 'Product updated successfully' : 'Product created successfully');
+      resetForm();
       await fetchProducts();
     } catch (error) {
       setStatus(error.message);
@@ -230,7 +253,7 @@ function AdminUpload() {
         <div className="dashboard-grid">
           <div className="dashboard-panel form-panel">
             <div className="panel-header">
-              <h3>New product</h3>
+              <h3>{editingProductId ? 'Edit product' : 'New product'}</h3>
             </div>
             <form onSubmit={handleSubmit} className="admin-form">
               <input name="name" value={form.name} onChange={handleChange} placeholder="Product name" required />
@@ -240,9 +263,16 @@ function AdminUpload() {
               <input name="imageUrl" value={form.imageUrl} onChange={handleChange} placeholder="Image URL" />
               <input name="category" value={form.category} onChange={handleChange} placeholder="Category" />
               <input name="tags" value={form.tags} onChange={handleChange} placeholder="Tags comma separated" />
-              <button type="submit" className="primary-btn" disabled={loading}>
-                {loading ? 'Uploading...' : 'Publish product'}
-              </button>
+              <div className="form-actions">
+                <button type="submit" className="primary-btn" disabled={loading}>
+                  {loading ? 'Saving...' : editingProductId ? 'Save changes' : 'Publish product'}
+                </button>
+                {editingProductId && (
+                  <button type="button" className="secondary-btn" onClick={resetForm} disabled={loading}>
+                    Cancel
+                  </button>
+                )}
+              </div>
             </form>
           </div>
 
@@ -266,13 +296,16 @@ function AdminUpload() {
             </div>
 
             <div className="mini-list">
-              {products.slice(0, 4).map((product) => (
+              {products.map((product) => (
                 <div key={product.id || product.name} className="mini-item">
                   <img src={product.imageUrl || product.coverImage || FALLBACK_IMAGE} alt={product.name} />
                   <div>
                     <strong>{product.name}</strong>
                     <span>{product.category || 'General'}</span>
                   </div>
+                  <button type="button" className="secondary-btn small-btn" onClick={() => handleEdit(product)}>
+                    Edit
+                  </button>
                 </div>
               ))}
             </div>

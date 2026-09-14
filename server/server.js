@@ -153,6 +153,44 @@ const saveProductToStore = async (productData) => {
   return normalizeProduct(newProduct);
 };
 
+const updateProductInStore = async (productId, productData) => {
+  const payload = {
+    name: productData.name,
+    description: productData.description,
+    url: productData.url,
+    documentationUrl: productData.documentationUrl || '',
+    category: productData.category || 'General',
+    tags: Array.isArray(productData.tags) ? productData.tags : [],
+    coverImage: productData.coverImage || '',
+  };
+
+  if (mongoose.connection.readyState === 1) {
+    if (!mongoose.isValidObjectId(productId)) {
+      return null;
+    }
+
+    const product = await Product.findByIdAndUpdate(productId, payload, {
+      new: true,
+      runValidators: true,
+    }).lean();
+
+    return product ? normalizeProduct(product) : null;
+  }
+
+  const productIndex = inMemoryProducts.findIndex((product) => product.id === productId);
+
+  if (productIndex === -1) {
+    return null;
+  }
+
+  inMemoryProducts[productIndex] = {
+    ...inMemoryProducts[productIndex],
+    ...payload,
+  };
+
+  return normalizeProduct(inMemoryProducts[productIndex]);
+};
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
@@ -248,6 +286,57 @@ app.post('/api/admin/products', async (req, res) => {
       success: true,
       product,
       message: 'Product uploaded successfully',
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+app.put('/api/admin/products/:id', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const decoded = verifyToken(authHeader);
+
+  if (!decoded || decoded.role !== 'admin' || decoded.username !== ADMIN_USERNAME) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized. Please log in as admin.',
+    });
+  }
+
+  const { name, description, url, documentationUrl, category, tags, coverImage, imageUrl } = req.body || {};
+
+  if (!name || !description || !url) {
+    return res.status(400).json({
+      success: false,
+      message: 'Name, description, and URL are required',
+    });
+  }
+
+  try {
+    const product = await updateProductInStore(req.params.id, {
+      name,
+      description,
+      url,
+      documentationUrl,
+      category,
+      tags,
+      coverImage: coverImage || imageUrl || '',
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      product,
+      message: 'Product updated successfully',
     });
   } catch (error) {
     return res.status(500).json({
