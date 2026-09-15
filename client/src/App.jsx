@@ -213,7 +213,7 @@ function UserAuth({ onAuth }) {
       onAuth(data.user);
       setStatus(mode === 'login' ? 'Welcome back' : 'Account created successfully');
     } catch (error) {
-      setStatus(error.message);
+      setStatus(error.name === 'AbortError' ? 'Email service timed out. Please try again later.' : error.message);
     } finally {
       setLoading(false);
     }
@@ -234,7 +234,7 @@ function UserAuth({ onAuth }) {
       setOtpRequested(true);
       setStatus(data.devOtp ? `Development OTP: ${data.devOtp}` : data.message);
     } catch (error) {
-      setStatus(error.message);
+      setStatus(error.name === 'AbortError' ? 'Email service timed out. Please try again later.' : error.message);
     } finally {
       setLoading(false);
     }
