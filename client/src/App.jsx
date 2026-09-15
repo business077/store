@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 
 const CONFIGURED_API_URL = (import.meta.env.VITE_API_URL || '').trim();
-const API_URL = (import.meta.env.PROD && /localhost|127\.0\.0\.1/.test(CONFIGURED_API_URL)
-  ? 'https://store-at6c.onrender.com'
-  : CONFIGURED_API_URL || 'https://store-at6c.onrender.com')
+const API_URL = (import.meta.env.PROD && (!CONFIGURED_API_URL || /localhost|127\.0\.0\.1/.test(CONFIGURED_API_URL)
+  ? ''
+  : CONFIGURED_API_URL))
   .replace(/\/+$/, '')
   .replace(/\/api$/, '');
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1553877522-43269d4ea984?auto=format&fit=crop&w=1200&q=80';

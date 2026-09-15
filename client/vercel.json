@@ -1,5 +1,7 @@
 {
   "rewrites": [
+    { "source": "/health", "destination": "https://store-at6c.onrender.com/health" },
+    { "source": "/api/:path*", "destination": "https://store-at6c.onrender.com/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
